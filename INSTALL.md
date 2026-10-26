@@ -14,7 +14,7 @@
 ```bash
 git pull origin main        # 已有仓库
 # 或
-git clone https://github.com/lucy1501126095-tech/KaiFoxHollow.git
+git clone https://github.com/kumavulp/kai-farm.git
 ```
 
 没有git就在仓库页面点绿色 **Code** 按钮 → **Download ZIP**，解压到顺手的位置（如 `D:\KaiFoxHollow`）。
