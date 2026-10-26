@@ -5,3 +5,11 @@ __pycache__/
 *.pdb
 node_modules/
 chat_outbox.txt
+
+# kai_stardew: 只留在宝宝电脑上的东西 (口令 / 隧道钥匙 / 下载的 Remix / 旧 mod 备份 / 日志)
+kai_stardew/pc/kai_gate_config.json
+kai_stardew/pc/keys/
+kai_stardew/pc/remix/
+kai_stardew/pc/downloads/
+kai_stardew/pc/old_mods_backup/
+kai_stardew/pc/*.log

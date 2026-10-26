@@ -1,0 +1,32 @@
+{
+  "gate_url": {
+    "description": "门的地址 (服务器上隧道口)",
+    "type": "string",
+    "default": "",
+    "hint": "安装脚本自动填, 形如 http://172.18.0.1:18100。只在服务器 docker 网络里能连到。"
+  },
+  "token": {
+    "description": "门的口令",
+    "type": "string",
+    "default": "",
+    "hint": "安装脚本自动填, 和宝宝电脑上 kai_gate_config.json 里的 token 必须一样。别发给任何人。"
+  },
+  "her_qq": {
+    "description": "宝宝的 QQ 号",
+    "type": "string",
+    "default": "",
+    "hint": "耳朵用: 她在游戏里说的话会当成这个 QQ 号的私聊递进会话。"
+  },
+  "ear_enabled": {
+    "description": "开耳朵",
+    "type": "bool",
+    "default": true,
+    "hint": "开着时, 宝宝在游戏聊天框说话会把 Kai 叫醒, 回复发进游戏。"
+  },
+  "max_chars": {
+    "description": "工具回执最多给 Kai 看多少字",
+    "type": "int",
+    "default": 1800,
+    "hint": "Remix 的状态条很长, 裁短了省 token。"
+  }
+}

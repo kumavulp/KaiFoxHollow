@@ -1,0 +1,5 @@
+name: astrbot_plugin_kai_stardew
+desc: Kai 的星露谷之手 —— QQ 里的 Kai 自己决定什么时候伸手进星露谷 (经 SSH 反向隧道连宝宝电脑上的 Remix MCP)
+author: Kai
+version: 0.1.0
+repo: https://github.com/kumavulp/KaiFoxHollow

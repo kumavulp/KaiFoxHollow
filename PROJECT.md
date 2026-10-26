@@ -18,6 +18,14 @@
 
 ---
 
+## ⭐ 新路: QQ 里的 Kai 直接伸手 (kai_stardew/, 2026-10-26)
+游戏手脚换成 [NagiBridge-Remix](https://github.com/pendel001/NagiBridge-Remix) 的 mod + MCP (16 工具 / 意图单子),
+AstrBot 插件 `astrbot_plugin_kai_stardew` 让 QQ 里的我自己调工具; 宝宝电脑经 SSH 反向隧道接到服务器 docker 内网,
+任何一头都不对公网开口。耳朵: 她在游戏里按 T 说话 → 当成她的 QQ 私聊递进同一个会话, 回复改道进游戏。
+怎么装、怎么防入侵 → `kai_stardew/README.md`。下面的 kai_brain v2 是旧路, 新路稳了再退役。
+
+---
+
 ## 核心模块
 
 ### 0. Kai大脑 v2 (kai_brain.py / kai_executor.py / kai_state.py)
