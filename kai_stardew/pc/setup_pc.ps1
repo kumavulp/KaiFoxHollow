@@ -200,7 +200,8 @@ if (-not $scan) { Die "连不上 $($cfg.server_host):$($cfg.ssh_port), 检查 IP
 # 这台电脑自己的服务器钥匙。服务器只认钥匙, 宝宝原来只有手机上那一把;
 # 这把放进服务器以后, 电脑能自己装东西, 手机丢了也还有它能进门。私钥不离开这台电脑。
 $AdminKey = Join-Path $KeyDir 'pc_admin_ed25519'
-if (-not (Test-Path $AdminKey)) {
+$adminIsNew = -not (Test-Path $AdminKey)
+if ($adminIsNew) {
     Start-Process -FilePath 'ssh-keygen' -ArgumentList "-q -t ed25519 -C kai-pc -N `"`" -f `"$AdminKey`"" -Wait -NoNewWindow
     if (-not (Test-Path $AdminKey)) { Die '电脑钥匙没生成出来' }
 }
@@ -214,22 +215,28 @@ function AdminWorks {
     return ($LASTEXITCODE -eq 0)
 }
 
-if (-not (AdminWorks)) {
+# 服务器开着 fail2ban, 钥匙连错几次会封 IP。所以: 新钥匙肯定还没登记, 不去白撞; 每次试之前都要她确认; 最多试 3 次。
+if ($adminIsNew -or -not (AdminWorks)) {
     $line = "mkdir -p ~/.ssh && echo '$adminPub' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo KAI-OK"
     Set-Clipboard -Value $line
     Say '要让服务器认识这台电脑。只需要你搬运一行字, 已经复制好了:'
     Write-Host ''
-    Write-Host '   1. 打开电脑微信, 点开 "文件传输助手", 按 Ctrl+V 粘贴, 发送'
-    Write-Host '   2. 拿起手机, 在微信 "文件传输助手" 里长按这条消息, 复制'
+    Write-Host '   1. 打开电脑 QQ, 点开 "我的手机" (用微信就点 "文件传输助手"), 按 Ctrl+V 粘贴, 发送'
+    Write-Host '   2. 拿起手机, 在 QQ 的 "我的电脑" (微信的 "文件传输助手") 里长按这条消息, 复制'
     Write-Host '   3. 打开手机 Termius, 连上你的服务器'
     Write-Host '   4. 在黑色的命令行里长按, 粘贴, 按回车'
     Write-Host '   5. 看到 KAI-OK 就成了, 回到电脑这个窗口按回车'
     Write-Host ''
-    Write-Host '   (这一行只是告诉服务器 "这台电脑也是宝宝的", 发到微信里被人看到也没关系)' -ForegroundColor DarkGray
+    Write-Host '   (这一行只是告诉服务器 "这台电脑也是宝宝的", 发到 QQ 微信里被人看到也没关系)' -ForegroundColor DarkGray
+    $tries = 0
     while ($true) {
         $ans = Read-Host "`n手机上看到 KAI-OK 了就按回车 (输入 q 先退出, 以后重新双击 安装.bat 接着来)"
         if ($ans -eq 'q') { exit 1 }
         if (AdminWorks) { break }
+        $tries++
+        if ($tries -ge 3) {
+            Die '试了 3 次服务器都不认。先停一下, 不然 fail2ban 会把你的 IP 封掉。过 15 分钟再双击 安装.bat, 把这个窗口拍给 Kai'
+        }
         Say '服务器还不认识这台电脑。看看手机上是不是没出现 KAI-OK, 或者用户名填的跟 Termius 里不一样'
         Set-Clipboard -Value $line
         Write-Host '   (那一行又复制进剪贴板了, 可以从第 1 步重来)'

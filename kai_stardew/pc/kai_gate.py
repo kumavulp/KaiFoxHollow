@@ -319,14 +319,27 @@ def ssh_base(cfg):
     ]
 
 
+# 宝宝服务器开着 fail2ban: 钥匙连错几次就封 IP, 封了她 Termius 也进不去。
+# 所以钥匙被拒 / 指纹对不上时绝不连撞, 隔半小时才再试一次 (fail2ban 的计数窗口通常 10 分钟)。
+AUTH_REFUSED_WAIT = 1800
+
+
 def tunnel_cmd(cfg):
     """先用同一把钥匙问服务器要监听地址 (服务器那头强制只回一行 KAI_LISTEN=ip:port), 再拉 -R。"""
     target = f"{cfg['ssh_user']}@{cfg['server_host']}"
     try:
-        out = subprocess.run(ssh_base(cfg) + ["-T", target], capture_output=True,
-                             text=True, timeout=30, stdin=subprocess.DEVNULL).stdout
+        probe = subprocess.run(ssh_base(cfg) + ["-T", target], capture_output=True,
+                               text=True, timeout=30, stdin=subprocess.DEVNULL)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         log(f"✖ 隧道: 连服务器失败 ({e})")
+        return None
+    out = probe.stdout
+    err = probe.stderr or ""
+    if "Permission denied" in err or "Host key verification failed" in err \
+            or "REMOTE HOST IDENTIFICATION HAS CHANGED" in err:
+        why = "钥匙被服务器拒绝" if "Permission denied" in err else "服务器指纹对不上 (可能被冒充, 也可能服务器重装过)"
+        log(f"✖ 隧道: {why}。为了不触发 fail2ban 封你的 IP, 半小时后才再试; 重新双击 安装.bat 能修好")
+        time.sleep(AUTH_REFUSED_WAIT)
         return None
     listen = ""
     for line in out.splitlines():

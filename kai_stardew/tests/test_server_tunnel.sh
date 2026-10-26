@@ -149,4 +149,16 @@ timeout 10 "${EVIL[@]}" kaitunnel@127.0.0.1 true >/dev/null 2>&1
 timeout 10 ssh -p $SSH_PORT -o BatchMode=yes -o PubkeyAuthentication=no -o UserKnownHostsFile="$W/known_hosts" kaitunnel@127.0.0.1 true >/dev/null 2>&1
 [ $? -ne 0 ] && pass "没钥匙 (密码) 进不来" || fail "没钥匙进来了"
 
+# 服务器开着 fail2ban: 钥匙被拒时门只试一次就停手, 不能连撞把她的 IP 封掉
+kill $GATE 2>/dev/null; wait $GATE 2>/dev/null
+mkdir -p "$W/pc2"
+cp "$KAI/pc/kai_gate.py" "$W/pc2/"
+printf '{"token": "%s", "gate_port": 8102, "mcp_port": %s, "game_port": %s, "manage_remix": false, "tunnel": true, "server_host": "127.0.0.1", "ssh_port": %s, "ssh_key": "%s", "known_hosts": "%s"}\n' \
+    "$TOKEN" $MCP_PORT $GAME_PORT $SSH_PORT "$W/evil" "$W/known_hosts" > "$W/pc2/kai_gate_config.json"
+python3 "$W/pc2/kai_gate.py" > "$W/gate2.log" 2>&1 &
+GATE=$!
+sleep 15
+N="$(grep -c '钥匙被服务器拒绝' "$W/gate2.log")"
+[ "$N" = 1 ] && pass "钥匙被拒只试一次就停手 (15 秒内 $N 次, 不会招来 fail2ban)" || { fail "钥匙被拒后试了 $N 次"; cat "$W/gate2.log"; }
+
 [ $FAILS = 0 ] && echo "ALL PASS" || { echo "$FAILS FAILED"; exit 1; }
