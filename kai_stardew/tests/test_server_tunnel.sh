@@ -56,8 +56,27 @@ cp "$KAI/server/setup_server.sh" "$W/bundle/server/"
 cp -r "$KAI/astrbot_plugin_kai_stardew" "$W/bundle/"
 printf 'PUBKEY=%s\r\nTOKEN=%s\r\nHER_QQ=123456\r\n' "$(cat "$W/key.pub")" "$TOKEN" > "$W/bundle/secrets.env"
 
-bash "$W/bundle/server/setup_server.sh" "$W/bundle" > "$W/setup.log" 2>&1 && pass "setup_server.sh 跑通" || { fail "setup_server.sh"; cat "$W/setup.log"; }
-bash "$W/bundle/server/setup_server.sh" "$W/bundle" > "$W/setup2.log" 2>&1 && pass "重复跑也行" || { fail "重复跑"; cat "$W/setup2.log"; }
+# 走宝宝真实的路: 从 setup_pc.ps1 里原样抠出粘贴文字 (按 PowerShell 单引号规则还原), 喂给 bash,
+# 就像她在 Termius 里粘贴回车一样。顺便模拟 Windows 打包时脚本带了 CRLF。
+sed -i 's/$/\r/' "$W/bundle/server/setup_server.sh"
+tar -czf "$W/bundle.tgz" -C "$W/bundle" .
+python3 - "$KAI/pc/setup_pc.ps1" "$W/bundle.tgz" "$W/paste.txt" <<'PY'
+import base64, re, sys
+ps = open(sys.argv[1], encoding="utf-8-sig").read()
+block = ps[ps.index("$paste = @("):]
+block = block[:block.index(") -join")]
+lits = [m.group(1).replace("''", "'") for m in re.finditer(r"^\s*'((?:[^']|'')*)'\s*$", block, re.M)]
+head, end_mark, tail = lits[0], lits[1], lits[2]
+b64 = base64.encodebytes(open(sys.argv[2], "rb").read()).decode().rstrip("\n")
+open(sys.argv[3], "w").write("\n".join([head, b64, end_mark, tail, ""]))
+PY
+BEFORE="$(ls -A /tmp | sort)"
+bash < "$W/paste.txt" > "$W/setup.log" 2>&1 && grep -q "服务器这边全好了" "$W/setup.log" \
+    && pass "Termius 粘贴那段文字跑通 ($(wc -l < "$W/paste.txt") 行)" || { fail "粘贴文字"; cat "$W/setup.log"; }
+LEFT="$(comm -13 <(echo "$BEFORE") <(ls -A /tmp | sort))"
+[ -z "$LEFT" ] && pass "粘贴跑完临时文件删干净了 (口令不留在服务器 /tmp)" || fail "临时文件没删: $LEFT"
+bash < "$W/paste.txt" > "$W/setup2.log" 2>&1 && grep -q "服务器这边全好了" "$W/setup2.log" \
+    && pass "重复粘贴也行" || { fail "重复跑"; cat "$W/setup2.log"; }
 [ "$(grep -c '>>> kai-stardew >>>' /etc/ssh/sshd_config)" = 1 ] && pass "sshd_config 里只有一段 kai-stardew" || fail "sshd_config 段落重复"
 CONF="$W/fake/AstrBot/data/config/astrbot_plugin_kai_stardew_config.json"
 python3 -c "import json,sys;c=json.load(open('$CONF'));sys.exit(0 if c['token']=='$TOKEN' and c['gate_url']=='http://$GW:$PORT' and c['her_qq']=='123456' else 1)" \

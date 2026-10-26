@@ -5,7 +5,8 @@
 #   2. 下载 Remix 源码 (MCP 服务器) 到这个文件夹的 remix\ 里
 #   3. 下载 Remix 的游戏 mod, 换掉 Mods 里旧的 NagiBridge (旧的挪到 old_mods_backup\, 不删)
 #   4. 生成一把只给隧道用的 SSH 钥匙和门的口令 (都只留在这台电脑上, 不进 git)
-#   5. 把服务器那头的安装脚本和 AstrBot 插件传上去执行 (会让你输服务器密码, 最多两次)
+#   5. 把服务器那头的安装脚本和 AstrBot 插件打包进剪贴板, 你在 Termius 里粘贴回车
+#      (服务器只认 Termius 里你的钥匙, 这里不替你登录, 也不碰你的钥匙)
 #   6. 写好 kai_gate_config.json, 在桌面放一个 "Kai 的星露谷" 快捷方式
 # 重复跑也没关系: 钥匙和口令会沿用, 其他的会更新。
 
@@ -30,7 +31,7 @@ function Native([scriptblock]$block) {
     try { & $block } finally { $ErrorActionPreference = $old }
 }
 $Me = "$env:USERDOMAIN\$env:USERNAME"
-foreach ($tool in 'ssh', 'ssh-keygen', 'ssh-keyscan', 'scp', 'tar') {
+foreach ($tool in 'ssh', 'ssh-keygen', 'ssh-keyscan', 'tar') {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         Die "这台电脑缺 $tool。Windows 设置 → 系统 → 可选功能 → 添加 OpenSSH 客户端, 装好再双击 安装.bat"
     }
@@ -182,10 +183,9 @@ function Ask($prompt, $default) {
     $v = Read-Host "$prompt$hint"
     if ([string]::IsNullOrWhiteSpace($v)) { return $default } else { return $v.Trim() }
 }
-Say '接下来要连你的服务器 (就是跑 AstrBot 的那台)'
+Say '接下来装服务器那头 (就是跑 AstrBot 的那台)'
 $cfg.server_host = Ask '服务器 IP' $cfg.server_host
 $cfg.ssh_port = [int](Ask 'SSH 端口' $(if ($cfg.ssh_port) { $cfg.ssh_port } else { 22022 }))
-$login = Ask '你平时登录服务器用的用户名' 'root'
 $herQQ = Ask '你的 QQ 号 (耳朵用: 你在游戏里说话会当成这个号发给我)' $cfg.her_qq
 if (-not $cfg.server_host) { Die '没填服务器 IP' }
 if ($herQQ -and $herQQ -notmatch '^\d{5,12}$') { Die "QQ 号看起来不对: $herQQ" }
@@ -196,7 +196,7 @@ $scan = Native { ssh-keyscan -p $cfg.ssh_port -t ed25519,ecdsa,rsa $cfg.server_h
 if (-not $scan) { Die "连不上 $($cfg.server_host):$($cfg.ssh_port), 检查 IP 和端口" }
 [IO.File]::WriteAllText($KnownHosts, (($scan -join "`n") + "`n"), $Utf8NoBom)
 
-# 打包: 服务器脚本 + 插件 + 钥匙公钥/口令
+# 打包: 服务器脚本 + 插件 + 隧道公钥/口令/QQ
 $stage = Join-Path $Downloads 'bundle'
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'server') | Out-Null
@@ -209,19 +209,24 @@ if (Test-Path $bundle) { Remove-Item -Force $bundle }
 & tar -czf $bundle -C $stage .
 if ($LASTEXITCODE -ne 0) { Die '打包失败 (Windows 10 1803 以上才自带 tar)' }
 Remove-Item -Recurse -Force $stage
-
-$target = "$login@$($cfg.server_host)"
-Say "上传到服务器 (这里会问一次服务器密码)..."
-& scp -P $cfg.ssh_port $bundle "${target}:/tmp/kai_stardew_bundle.tgz"
-if ($LASTEXITCODE -ne 0) { Remove-Item -Force $bundle; Die '上传失败' }
+$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($bundle), 'InsertLineBreaks') -replace "`r`n", "`n"
 Remove-Item -Force $bundle
 
-Say "在服务器上安装 (这里可能再问一次密码, 不是 root 的话 sudo 还会问一次)..."
-$remote = 'd=$(mktemp -d) && tar xzf /tmp/kai_stardew_bundle.tgz -C $d && rm -f /tmp/kai_stardew_bundle.tgz && tr -d \\r < $d/server/setup_server.sh > $d/setup.sh && if [ $(id -u) = 0 ]; then bash $d/setup.sh $d; else sudo bash $d/setup.sh $d; fi; s=$?; rm -rf $d; exit $s'
-& ssh -t -p $cfg.ssh_port $target $remote
-if ($LASTEXITCODE -ne 0) { Die '服务器那头没装成, 看上面的报错' }
+# 服务器只认 Termius 里你的钥匙, 所以这里不替你登录: 生成一段文字, 你在 Termius 里粘贴回车。
+# 整段在子 shell 里跑 (umask 077, 临时文件只有自己能读), 跑完连临时文件一起删, 不从网上下载任何东西。
+$paste = @(
+    '( umask 077; f=$(mktemp); d=$(mktemp -d); base64 -d > "$f" <<''KAI_END'''
+    $b64.TrimEnd("`n")
+    'KAI_END'
+    'tar xzf "$f" -C "$d" && tr -d ''\r'' < "$d/server/setup_server.sh" > "$d/setup.sh" && if [ "$(id -u)" = 0 ]; then bash "$d/setup.sh" "$d"; else sudo bash "$d/setup.sh" "$d"; fi; rm -rf "$f" "$d" )'
+    ''
+) -join "`n"
+$pasteFile = Join-Path $Here 'paste_to_server.txt'
+[IO.File]::WriteAllText($pasteFile, $paste, $Utf8NoBom)
+& icacls $pasteFile /inheritance:r /grant:r "${Me}:(R,W)" | Out-Null
+Set-Clipboard -Value $paste
 
-# ───────── 6. 本机配置 + 自检 + 快捷方式 ─────────
+# 先把本机配置写好, 服务器那头一装完就能直接测
 $cfg.python = $py
 $cfg.remix_dir = 'remix'
 $cfg.ssh_user = 'kaitunnel'
@@ -231,10 +236,25 @@ if (-not $cfg.game_port) { $cfg.game_port = 7843 }
 [IO.File]::WriteAllText($ConfigPath, ($cfg | ConvertTo-Json), $Utf8NoBom)
 & icacls $ConfigPath /inheritance:r /grant:r "${Me}:(R,W)" | Out-Null
 
-Say '试一下隧道钥匙...'
-$info = Native { ssh -i $KeyPath -p $cfg.ssh_port -o IdentitiesOnly=yes -o BatchMode=yes -o "UserKnownHostsFile=$KnownHosts" -o StrictHostKeyChecking=yes -T "kaitunnel@$($cfg.server_host)" 2>&1 }
-if (($info -join "`n") -notmatch 'KAI_LISTEN=') { Die "钥匙登录没成功: $info" }
+Say '服务器要装的东西已经复制进剪贴板了。现在:'
+Write-Host '   1. 打开 Termius, 连上你的服务器'
+Write-Host '   2. 在服务器的命令行里粘贴, 按回车'
+Write-Host '   3. 等它最后打出 "[Kai] 服务器这边全好了" 和一行 KAI_LISTEN=...'
+Write-Host "   (剪贴板被覆盖了的话, 用记事本打开 $pasteFile 全选复制)"
+Write-Host '   (不是 root 登录的话, 中途 sudo 可能会问一次密码)'
+
+# ───────── 6. 自检 + 快捷方式 ─────────
+while ($true) {
+    $ans = Read-Host "`n服务器那边装好了就按回车, 我来试隧道钥匙 (输入 q 先退出, 以后重新双击 安装.bat 就行)"
+    if ($ans -eq 'q') { exit 1 }
+    $info = Native { ssh -i $KeyPath -p $cfg.ssh_port -o IdentitiesOnly=yes -o BatchMode=yes -o "UserKnownHostsFile=$KnownHosts" -o StrictHostKeyChecking=yes -T "kaitunnel@$($cfg.server_host)" 2>&1 }
+    if (($info -join "`n") -match 'KAI_LISTEN=') { break }
+    Say "还没通: $($info -join ' ')"
+    Write-Host '   看看 Termius 里有没有红字 "[Kai] 停下了", 把那几行发给 Kai'
+}
 Say "通了: $($info -join ' ')"
+Remove-Item -Force $pasteFile
+Set-Clipboard -Value ' '
 
 $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Kai 的星露谷.lnk'
 $sh = New-Object -ComObject WScript.Shell
