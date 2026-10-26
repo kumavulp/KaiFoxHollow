@@ -14,6 +14,13 @@ PORT=18100
 SSH_PORT=22022
 MCP_PORT=18020 GAME_PORT=17863 GATE_PORT=8100
 FAILS=0
+GATE="" REMIX=""
+cleanup() {
+    kill $GATE $REMIX 2>/dev/null
+    [ -f "$W/sshd.pid" ] && kill "$(cat "$W/sshd.pid")" 2>/dev/null
+    return 0
+}
+trap cleanup EXIT
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*"; FAILS=$((FAILS+1)); }
 
@@ -56,27 +63,36 @@ cp "$KAI/server/setup_server.sh" "$W/bundle/server/"
 cp -r "$KAI/astrbot_plugin_kai_stardew" "$W/bundle/"
 printf 'PUBKEY=%s\r\nTOKEN=%s\r\nHER_QQ=123456\r\n' "$(cat "$W/key.pub")" "$TOKEN" > "$W/bundle/secrets.env"
 
-# 走宝宝真实的路: 从 setup_pc.ps1 里原样抠出粘贴文字 (按 PowerShell 单引号规则还原), 喂给 bash,
-# 就像她在 Termius 里粘贴回车一样。顺便模拟 Windows 打包时脚本带了 CRLF。
+# 走宝宝真实的路, 两句关键命令都从 setup_pc.ps1 里原样抠出来 (按 PowerShell 引号规则还原):
+#   ① 她用手机 Termius 粘贴的那一行 (让服务器认识电脑钥匙) —— 这里用 root 直接跑来模拟
+#   ② 电脑拿自己的钥匙 scp 上传, 再 ssh -t 执行安装
+# 顺便模拟 Windows 打包时脚本带了 CRLF。
+ssh-keygen -q -t ed25519 -N "" -C kai-pc -f "$W/pc_admin"
 sed -i 's/$/\r/' "$W/bundle/server/setup_server.sh"
 tar -czf "$W/bundle.tgz" -C "$W/bundle" .
-python3 - "$KAI/pc/setup_pc.ps1" "$W/bundle.tgz" "$W/paste.txt" <<'PY'
-import base64, re, sys
+python3 - "$KAI/pc/setup_pc.ps1" "$W/pc_admin.pub" "$W/phone_line.sh" "$W/remote.sh" <<'PY'
+import re, sys
 ps = open(sys.argv[1], encoding="utf-8-sig").read()
-block = ps[ps.index("$paste = @("):]
-block = block[:block.index(") -join")]
-lits = [m.group(1).replace("''", "'") for m in re.finditer(r"^\s*'((?:[^']|'')*)'\s*$", block, re.M)]
-head, end_mark, tail = lits[0], lits[1], lits[2]
-b64 = base64.encodebytes(open(sys.argv[2], "rb").read()).decode().rstrip("\n")
-open(sys.argv[3], "w").write("\n".join([head, b64, end_mark, tail, ""]))
+line = re.search(r'^\s*\$line = "(.*)"\s*$', ps, re.M).group(1)
+line = line.replace("$adminPub", open(sys.argv[2]).read().strip())
+assert "$" not in line, line
+remote = re.search(r"^\$remote = '((?:[^']|'')*)'\s*$", ps, re.M).group(1).replace("''", "'")
+open(sys.argv[3], "w").write(line + "\n")
+open(sys.argv[4], "w").write(remote)
 PY
-BEFORE="$(ls -A /tmp | sort)"
-bash < "$W/paste.txt" > "$W/setup.log" 2>&1 && grep -q "服务器这边全好了" "$W/setup.log" \
-    && pass "Termius 粘贴那段文字跑通 ($(wc -l < "$W/paste.txt") 行)" || { fail "粘贴文字"; cat "$W/setup.log"; }
-LEFT="$(comm -13 <(echo "$BEFORE") <(ls -A /tmp | sort))"
-[ -z "$LEFT" ] && pass "粘贴跑完临时文件删干净了 (口令不留在服务器 /tmp)" || fail "临时文件没删: $LEFT"
-bash < "$W/paste.txt" > "$W/setup2.log" 2>&1 && grep -q "服务器这边全好了" "$W/setup2.log" \
-    && pass "重复粘贴也行" || { fail "重复跑"; cat "$W/setup2.log"; }
+OUT="$(HOME=/root bash "$W/phone_line.sh" 2>&1)"
+[ "$OUT" = "KAI-OK" ] && pass "手机粘贴的那一行跑通 (回 KAI-OK)" || fail "手机那一行: $OUT"
+ssh-keyscan -p $SSH_PORT 127.0.0.1 2>/dev/null > "$W/known_hosts"
+ADMIN=(-i "$W/pc_admin" -o IdentitiesOnly=yes -o UserKnownHostsFile="$W/known_hosts" -o StrictHostKeyChecking=yes)
+ssh "${ADMIN[@]}" -p $SSH_PORT -o BatchMode=yes root@127.0.0.1 true && pass "服务器认识电脑钥匙了" || fail "电脑钥匙登不上"
+for round in 1 2; do
+    scp "${ADMIN[@]}" -q -P $SSH_PORT "$W/bundle.tgz" root@127.0.0.1:kai_stardew_bundle.tgz || fail "scp"
+    # 登进去以后 PATH 是 sshd 给的, 前面补上假 docker/systemctl, 其余就是 setup_pc.ps1 里那句原样
+    ssh "${ADMIN[@]}" -t -p $SSH_PORT root@127.0.0.1 "PATH=$W/bin:\$PATH; $(cat "$W/remote.sh")" > "$W/setup$round.log" 2>&1 \
+        && grep -q "服务器这边全好了" "$W/setup$round.log" && pass "电脑自动上传+安装跑通 (第 $round 次)" \
+        || { fail "自动安装第 $round 次"; cat "$W/setup$round.log"; }
+done
+[ ! -e /root/kai_stardew_bundle.tgz ] && pass "装完包删了 (口令不留在服务器上)" || fail "包还留在家目录"
 [ "$(grep -c '>>> kai-stardew >>>' /etc/ssh/sshd_config)" = 1 ] && pass "sshd_config 里只有一段 kai-stardew" || fail "sshd_config 段落重复"
 CONF="$W/fake/AstrBot/data/config/astrbot_plugin_kai_stardew_config.json"
 python3 -c "import json,sys;c=json.load(open('$CONF'));sys.exit(0 if c['token']=='$TOKEN' and c['gate_url']=='http://$GW:$PORT' and c['her_qq']=='123456' else 1)" \
@@ -133,6 +149,4 @@ timeout 10 "${EVIL[@]}" kaitunnel@127.0.0.1 true >/dev/null 2>&1
 timeout 10 ssh -p $SSH_PORT -o BatchMode=yes -o PubkeyAuthentication=no -o UserKnownHostsFile="$W/known_hosts" kaitunnel@127.0.0.1 true >/dev/null 2>&1
 [ $? -ne 0 ] && pass "没钥匙 (密码) 进不来" || fail "没钥匙进来了"
 
-kill $GATE $REMIX 2>/dev/null
-kill "$(cat "$W/sshd.pid")" 2>/dev/null
 [ $FAILS = 0 ] && echo "ALL PASS" || { echo "$FAILS FAILED"; exit 1; }
