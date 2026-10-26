@@ -37,7 +37,7 @@ DEFAULTS = {
     "python": sys.executable,
     "tunnel": True,
     "server_host": "",
-    "ssh_port": 22022,
+    "ssh_port": 22,
     "ssh_user": "kaitunnel",
     "ssh_key": os.path.join(HERE, "keys", "kai_stardew_ed25519"),
     "known_hosts": os.path.join(HERE, "keys", "known_hosts"),

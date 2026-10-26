@@ -185,7 +185,8 @@ function Ask($prompt, $default) {
 }
 Say '接下来装服务器那头 (就是跑 AstrBot 的那台)'
 $cfg.server_host = Ask '服务器 IP (手机 Termius 里那台服务器的地址)' $cfg.server_host
-$cfg.ssh_port = [int](Ask 'SSH 端口' $(if ($cfg.ssh_port) { $cfg.ssh_port } else { 22022 }))
+$cfg.ssh_port = [int](Ask 'SSH 端口 (手机 Termius 里那台服务器填的端口)' $cfg.ssh_port)
+if (-not $cfg.ssh_port) { Die '没填 SSH 端口' }
 $cfg.login_user = Ask '手机 Termius 里登录这台服务器用的用户名' $(if ($cfg.login_user) { $cfg.login_user } else { 'root' })
 $herQQ = Ask '你的 QQ 号 (耳朵用: 你在游戏里说话会当成这个号发给我)' $cfg.her_qq
 if (-not $cfg.server_host) { Die '没填服务器 IP' }
